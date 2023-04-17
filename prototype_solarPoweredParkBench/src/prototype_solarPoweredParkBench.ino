@@ -26,6 +26,9 @@
 #include "kdsRainbows.h"
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_GFX.h>
+#include <MQTT.h>
+#include <JsonParserGeneratorRK.h>
+#include <HttpClient.h>
 
 //GLOBALS
 //MSGEQ7 Sound Sensor
@@ -51,31 +54,48 @@ const int OLED_RESET = D4;
 //Distance Sensor
 const int MOTIONSENSOR = A1;
 int distance;
-int distanceThreshold = 2900;
+int distanceThreshold = 2817;
 
-
-//Objects
-Adafruit_NeoPixel pixel(PIXELCOUNT, PIXELPIN, WS2812B);
-Adafruit_SSD1306 myDisplay(OLED_RESET); 
-//Objects for ATTEMPT_v1.0
-TCPClient client;                           // Create TCP Client object
-byte server[] = { 104, 19, 217, 48 }; 		//https://gluebench.bubbleapps.io/
-byte dataBuffer[1024];
-String receivedData;
-
+//JSON Xfer
+int const PORT=80;
+int nextTime;
+int lastTime;
+int mainTemp;
 
 //function prototype
 int pixelFill (int startPixel, int endPixel, int brightness, int hexColor);
 int tradRainbow (int startPixel, int endPixel, int hexColor);
 int movingTradRainbow (int startPixel, int endPixel, int hexColor);
 
+//Objects
+Adafruit_NeoPixel pixel(PIXELCOUNT, PIXELPIN, WS2812B);
+Adafruit_SSD1306 myDisplay(OLED_RESET); 
+//Objects for JSON Xfer
+TCPClient TheClient; // Create TCP Client object  
+HttpClient http;
+http_request_t request;
+http_response_t response;
+JsonParserStatic<512, 16> jsonParser;                       
+byte server[] = { 104, 19, 217, 48}; //https://gluebench.bubbleapps.io/
 
-SYSTEM_MODE(SEMI_AUTOMATIC);
+
+
+SYSTEM_MODE(AUTOMATIC);
 
 void setup() {
     Serial.begin(9600);
     waitFor(Serial.isConnected, 15000);
     pixel.begin();
+
+    //Connect to Internet but not Particle Cloud
+    WiFi.on();
+    WiFi.connect();
+    while(WiFi.connecting()) {
+        Serial.printf(".");
+    }
+    Serial.printf("\n\n");
+
+
     //initialize Sound Input
    // Define our pin modes
     pinMode(STROBE, OUTPUT);
@@ -89,10 +109,10 @@ void setup() {
  
   // Reset MSGEQ7 
     digitalWrite(RESETPIN, HIGH);
-    delay(1);
+    delayMicroseconds(.1);
     digitalWrite(RESETPIN, LOW);
     digitalWrite(STROBE, HIGH); 
-    delay(1);
+    delayMicroseconds(72);
 
 //Initialize the OLED
     myDisplay.begin(SSD1306_SWITCHCAPVCC, 0x3C);
@@ -100,211 +120,206 @@ void setup() {
 
 //Initialize the IR Distance Sensor
     pinMode(MOTIONSENSOR, INPUT);
-    
-
 }
 
 void loop() {
     distance = analogRead(MOTIONSENSOR); //Get Distance to determine if the program will run given a presence
-    Serial.printf("Distance = %i\n", distance); //Troubleshoot: Print Distance
+    Serial.printf("first read is %i", distance);
 
-    //GET Sound
-    // Cycle through each frequency band by pulsing the strobe.
-    for(int i = 0; i < 7; i++) {
-        digitalWrite(STROBE, LOW);
-        delay(1);
-        soundLevel[i] = analogRead(OUT);
-        digitalWrite(STROBE, HIGH);
-        delay(1); 
-    }
-    for(int i=0; i<7; i++) {
-        Serial.printf("Level %i\n Value %i\n", i, soundLevel[i]);
-    }
-    if(distance > distanceThreshold) { //if a presence is sensed run the program {
+    if(distance > distanceThreshold) { //if a presence is sensed run the program
+    //Brian, it's here:
+    //Get the Temperature data from Bubble
+       
+       if(WiFi.connecting() == false) {
+          if((millis()-lastTime > 60000)) {
+            request.hostname = "gluebench.bubbleapps.io";
+            request.port = PORT;
+            request.path = "/version-test/api/1.1/wf/getMainTemp";
+            http.get(request, response);
+            if (response.status == 200) { //not sure why the response status is 200, don't remember why
+                jsonParser.clear();
+                Serial.printf("Application>\tResponse status: "); 
+                Serial.println(response.status);
+                Serial.printf("Application>\tHTTP Response Body: ");
+                Serial.println(response.body);
+                mainTemp = jsonParser.parse(); //<-- Here we need to parse the received data, but I don't know how.
+            
+            } 
+            lastTime = millis();
+          }
+            else {
+                Serial.printf("HTTP error: ");
+                Serial.println(response.status);
+            }
+            delay(5000);
+       }
         //OLED Display properties
-        myDisplay.setRotation(2);
-        myDisplay.setCursor (8,1);
-        myDisplay.setTextSize(2);
-        myDisplay.setTextColor(WHITE);
-        myDisplay.printf("Distance = %i\n", distance); //Troublehsoot: Print Distance
-        myDisplay.display();
-        myDisplay.clearDisplay();
-        myDisplay.display();
+        // myDisplay.clearDisplay();
+        // myDisplay.display();
+        // myDisplay.setRotation(2);
+        // myDisplay.setCursor (1,1);
+        // myDisplay.setTextSize(2);
+        // myDisplay.setTextColor(WHITE);
+        // myDisplay.printf("Distance = %i\n", distance); //Troublehsoot: Print Distance
+        // myDisplay.display();
+     
 
-        //Light Iteration Variables for Neopixel settings
-        static int upDown = 1;
-        static int pixelNum = 0;
-        static int lastPixelTime = 0;
-        int maxPixel = 16;
-        int minPixel = 0;
-
-        if(millis()-lastPixelTime > 500) {  //start timer
-            lastPixelTime = millis();       //reset timer
-
-
-            if(soundLevel[0] <= 63){
-                pixelFill(0, 4, 50, fullred);
-            }
-            if(soundLevel[0] <= 160 && soundLevel[0] > 63){
-                pixelFill(0, 4, 85, fullred);
-            }
-            if(soundLevel[0] <= 400 && soundLevel[0] > 160){
-                pixelFill(0, 4, 100, fullred);
-            }
-            if(soundLevel[0] <= 1000 && soundLevel[0] > 400){
-                pixelFill(0, 4, 150, fullred);
-            }
-            if(soundLevel[0] <= 2500 && soundLevel[0] > 1000){
-                pixelFill(0, 4, 200, fullred);
-            }
-            if(soundLevel[0] <= 6250 && soundLevel[0] > 2500){
-                pixelFill(0, 4, 220, fullred);
-            }
-            if(soundLevel[0] <= 16000 && soundLevel[0] > 6250){
-                pixelFill(0, 4, 255, fullred);
-            }
-        
-            //Light effects: Sound Level 1
-            if(soundLevel[1] <= 63){
-                pixelFill(5, 6, 50, fullmagenta);
-            }
-            if(soundLevel[1] <= 160 && soundLevel[0] > 63){
-                pixelFill(5, 6, 85, fullmagenta);
-            }
-            if(soundLevel[1] <= 400 && soundLevel[0] > 160){
-                pixelFill(5, 6, 100, fullmagenta);
-            }
-            if(soundLevel[1] <= 1000 && soundLevel[0] > 400){
-                pixelFill(5, 6, 150, fullmagenta);
-            }
-            if(soundLevel[1] <= 2500 && soundLevel[0] > 1000){
-                pixelFill(5, 6, 200, fullmagenta);
-            }
-            if(soundLevel[1] <= 6250 && soundLevel[0] > 2500){
-                pixelFill(5, 6, 220, fullmagenta);
-            }
-            if(soundLevel[1] <= 16000 && soundLevel[0] > 6250){
-                pixelFill(5, 6, 255, fullmagenta);
-            }
-
-            //Light effects: Sound Level 2
-            if(soundLevel[2] <= 63){
-                pixelFill(7, 8, 50, purple);
-            }
-            if(soundLevel[2] <= 160 && soundLevel[0] > 63){
-                pixelFill(7, 8, 85, purple);
-            }
-            if(soundLevel[2] <= 400 && soundLevel[0] > 160){
-                pixelFill(7, 8, 100, purple);
-            }
-            if(soundLevel[2] <= 1000 && soundLevel[0] > 400){
-                pixelFill(7, 8, 150, purple);
-            }
-            if(soundLevel[2] <= 2500 && soundLevel[0] > 1000){
-                pixelFill(7, 8, 200, purple);
-            }
-            if(soundLevel[2] <= 6250 && soundLevel[0] > 2500){
-                pixelFill(7, 8, 220, purple);
-            }
-            if(soundLevel[2] <= 16000 && soundLevel[0] > 6250){
-                pixelFill(7, 8, 255, purple);
-            }
-
-
-            //Light effects: Sound Level 3
-            if(soundLevel[3] <= 63){
-                pixelFill(9, 12, 50, fullblue);
-            }
-            if(soundLevel[3] <= 160 && soundLevel[0] > 63){
-                pixelFill(9, 12, 85, fullblue);
-            }
-            if(soundLevel[3] <= 400 && soundLevel[0] > 160){
-                pixelFill(9, 12, 100, fullblue);
-            }
-            if(soundLevel[3] <= 1000 && soundLevel[0] > 400){
-                pixelFill(9, 12, 150, fullblue);
-            }
-            if(soundLevel[3] <= 2500 && soundLevel[0] > 1000){
-                pixelFill(9, 12, 200, fullblue);
-            }
-            if(soundLevel[3] <= 6250 && soundLevel[0] > 2500){
-                pixelFill(9, 12, 220, fullblue);
-            }
-            if(soundLevel[3] <= 16000 && soundLevel[0] > 6250){
-                pixelFill(9, 12, 255, fullblue);
-            }
-
-
-            //Light effects: Sound Level 4
-            if(soundLevel[4] <= 63){
-                pixelFill(13, 14, 50, fullgreen);
-            }
-            if(soundLevel[4] <= 160 && soundLevel[0] > 63){
-                pixelFill(13, 14, 85, fullgreen);
-            }
-            if(soundLevel[4] <= 400 && soundLevel[0] > 160){
-                pixelFill(13, 14, 100, fullgreen);
-            }
-            if(soundLevel[4] <= 1000 && soundLevel[0] > 400){
-                pixelFill(13, 14, 150, fullgreen);
-            }
-            if(soundLevel[4] <= 2500 && soundLevel[0] > 1000){
-                pixelFill(13, 14, 200, fullgreen);
-            }
-            if(soundLevel[4] <= 6250 && soundLevel[0] > 2500){
-                pixelFill(13, 14, 220, fullgreen);
-            }
-            if(soundLevel[4] <= 16000 && soundLevel[0] > 6250){
-                pixelFill(13, 14, 255, fullgreen);
-            }
-
-
-            //Light effects: Sound Level 5
-            if(soundLevel[5] <= 63){
-                pixelFill(15, 15, 50, fullyellow);
-            }
-            if(soundLevel[5] <= 160 && soundLevel[0] > 63){
-                pixelFill(15, 15, 85, fullyellow);
-            }
-            if(soundLevel[5] <= 400 && soundLevel[0] > 160){
-                pixelFill(15, 15, 100, fullyellow);
-            }
-            if(soundLevel[5] <= 1000 && soundLevel[0] > 400){
-                pixelFill(15, 15, 150, fullyellow);
-            }
-            if(soundLevel[5] <= 2500 && soundLevel[0] > 1000){
-                pixelFill(15, 15, 200, fullyellow);
-            }
-            if(soundLevel[5] <= 6250 && soundLevel[0] > 2500){
-                pixelFill(15, 15, 220, fullyellow);
-            }
-            if(soundLevel[5] <= 16000 && soundLevel[0] > 6250){
-                pixelFill(15, 15, 255, fullyellow);
-            }
-
-           //Light effects: Sound Level 6
-            if(soundLevel[6] <= 63){
-                pixelFill(16, 16, 50, orange);
-            }
-            if(soundLevel[6] <= 160 && soundLevel[0] > 63){
-                pixelFill(16, 16, 85, orange);
-            }
-            if(soundLevel[6] <= 400 && soundLevel[0] > 160){
-                pixelFill(16, 16, 100, orange);
-            }
-            if(soundLevel[6] <= 1000 && soundLevel[0] > 400){
-                pixelFill(16, 16, 150, orange);
-            }
-            if(soundLevel[6] <= 2500 && soundLevel[0] > 1000){
-                pixelFill(16, 16, 200, orange);
-            }
-            if(soundLevel[6] <= 6250 && soundLevel[0] > 2500){
-                pixelFill(16, 16, 220, orange);
-            }
-            if(soundLevel[6] <= 16000 && soundLevel[0] > 6250){
-                pixelFill(16, 16, 255, orange);
-            }
-        }   
+        //GET Sound
+        // Cycle through each frequency band by pulsing the strobe.
+        //Sound Level 0
+        digitalWrite(STROBE, LOW);
+        delayMicroseconds(72);
+        soundLevel[0] = analogRead(OUT);
+        Serial.printf("Level 0\n Value %i\n", soundLevel[0]);
+        digitalWrite(STROBE, HIGH);
+        delayMicroseconds(72); 
+        if(soundLevel[0] < 400) {
+            pixelFill(0, 2, 50, fullred);
+        }
+        if(soundLevel[0] >= 400 && soundLevel[0] < 1000) {
+            pixelFill(0, 2, 100, fullred);
+        }
+        if(soundLevel[0] >= 1000 && soundLevel[0] < 2000) {
+            pixelFill(0, 2, 150, fullred);
+        }
+        if(soundLevel[0] >= 2000 && soundLevel[0] < 3000) {
+            pixelFill(0, 2, 200, fullred);
+        }
+        if(soundLevel[0] >= 3000) {
+            pixelFill(0, 2, 255, fullred);
+        }
+        //Sound Level 1
+        digitalWrite(STROBE, LOW);
+        delayMicroseconds(72);
+        soundLevel[1] = analogRead(OUT);
+        Serial.printf("Level 0\n Value %i\n", soundLevel[1]);
+        digitalWrite(STROBE, HIGH);
+        delayMicroseconds(72); 
+        if(soundLevel[1] < 400) {
+            pixelFill(3, 5, 50, fullmagenta);
+        }
+        if(soundLevel[1] >= 400 && soundLevel[1] < 1000) {
+            pixelFill(3, 5, 100, fullmagenta);
+        }
+        if(soundLevel[1] >= 1000 && soundLevel[1] < 2000) {
+            pixelFill(3, 5, 150, fullmagenta);
+        }
+        if(soundLevel[1] >= 2000 && soundLevel[1] < 3000) {
+            pixelFill(3, 5, 200, fullmagenta);
+        }
+        if(soundLevel[1] >= 3000) {
+            pixelFill(3, 5, 255, fullmagenta);
+        }
+         //Sound Level 2
+        digitalWrite(STROBE, LOW);
+        delayMicroseconds(72);
+        soundLevel[2] = analogRead(OUT);
+        Serial.printf("Level 0\n Value %i\n", soundLevel[2]);
+        digitalWrite(STROBE, HIGH);
+        delayMicroseconds(72); 
+        if(soundLevel[2] < 400) {
+            pixelFill(6, 8, 50, purple);
+        }
+        if(soundLevel[2] >= 400 && soundLevel[2] < 1000) {
+            pixelFill(6, 8, 100, purple);
+        }
+        if(soundLevel[2] >= 1000 && soundLevel[2] < 2000) {
+            pixelFill(6, 8, 150, purple);
+        }
+        if(soundLevel[2] >= 2000 && soundLevel[2] < 3000) {
+            pixelFill(6, 8, 200, purple);
+        }
+        if(soundLevel[2] >= 3000) {
+            pixelFill(6, 8, 255, purple);
+        }
+        //Sound Level 3
+        digitalWrite(STROBE, LOW);
+        delayMicroseconds(72);
+        soundLevel[3] = analogRead(OUT);
+        Serial.printf("Level 0\n Value %i\n", soundLevel[3]);
+        digitalWrite(STROBE, HIGH);
+        delayMicroseconds(72); 
+        if(soundLevel[3] < 400) {
+            pixelFill(9, 11, 50, fullblue);
+        }
+        if(soundLevel[3] >= 400 && soundLevel[3] < 1000) {
+            pixelFill(9, 11, 100, fullblue);
+        }
+        if(soundLevel[3] >= 1000 && soundLevel[3] < 2000) {
+            pixelFill(9, 11, 150, fullblue);
+        }
+        if(soundLevel[3] >= 2000 && soundLevel[3] < 3000) {
+            pixelFill(9, 11, 200, fullblue);
+        }
+        if(soundLevel[3] >= 3000) {
+            pixelFill(9, 11, 255, fullblue);
+        }
+        //Sound Level 4
+        digitalWrite(STROBE, LOW);
+        delayMicroseconds(72);
+        soundLevel[4] = analogRead(OUT);
+        Serial.printf("Level 0\n Value %i\n", soundLevel[4]);
+        digitalWrite(STROBE, HIGH);
+        delayMicroseconds(72); 
+        if(soundLevel[4] < 400) {
+            pixelFill(12, 13, 50, fullgreen);
+        }
+        if(soundLevel[4] >= 400 && soundLevel[4] < 1000) {
+            pixelFill(12, 13, 100, fullgreen);
+        }
+        if(soundLevel[4] >= 1000 && soundLevel[4] < 2000) {
+            pixelFill(12, 13, 150, fullgreen);
+        }
+        if(soundLevel[4] >= 2000 && soundLevel[4] < 3000) {
+            pixelFill(12, 13, 200, fullgreen);
+        }
+        if(soundLevel[4] >= 3000) {
+            pixelFill(12, 13, 255, fullgreen);
+        }
+        //Sound Level 5
+        digitalWrite(STROBE, LOW);
+        delayMicroseconds(72);
+        soundLevel[5] = analogRead(OUT);
+        Serial.printf("Level 0\n Value %i\n", soundLevel[5]);
+        digitalWrite(STROBE, HIGH);
+        delayMicroseconds(72); 
+        if(soundLevel[4] < 400) {
+            pixelFill(14, 15, 50, fullyellow);
+        }
+        if(soundLevel[5] >= 400 && soundLevel[5] < 1000) {
+            pixelFill(14, 15, 100, fullyellow);
+        }
+        if(soundLevel[5] >= 1000 && soundLevel[5] < 2000) {
+            pixelFill(14, 15, 150, fullyellow);
+        }
+        if(soundLevel[5] >= 2000 && soundLevel[5] < 3000) {
+            pixelFill(14, 15, 200, fullyellow);
+        }
+        if(soundLevel[5] >= 3000) {
+            pixelFill(14, 15, 255, fullyellow);
+        }
+        //Sound Level 6
+        digitalWrite(STROBE, LOW);
+        delayMicroseconds(72);
+        soundLevel[6] = analogRead(OUT);
+        Serial.printf("Level 0\n Value %i\n", soundLevel[6]);
+        digitalWrite(STROBE, HIGH);
+        delayMicroseconds(72); 
+        if(soundLevel[6] < 400) {
+            pixelFill(14, 15, 50, orange);
+        }
+        if(soundLevel[6] >= 400 && soundLevel[6] < 1000) {
+            pixelFill(16, 16, 100, orange);
+        }
+        if(soundLevel[6] >= 1000 && soundLevel[6] < 2000) {
+            pixelFill(16, 16, 150, orange);
+        }
+        if(soundLevel[6] >= 2000 && soundLevel[6] < 3000) {
+            pixelFill(16, 16, 200, orange);
+        }
+        if(soundLevel[6] >= 3000) {
+            pixelFill(16, 16, 255, orange);
+        }
     }
     else {
         distance = analogRead(MOTIONSENSOR);
@@ -403,6 +418,34 @@ int movingTradRainbow (int startPixel, int endPixel, int hexColor) {
     pixel.show();
     return (endPixel);
 }
+//SAMPLE CODE:
+
+//in void Loop:
+    // if((millis()-lastTime>10000)) {
+    //         if(mqtt.Update()) {
+    //             // randLat = random(35.092891, 35.245520);
+    //             randLat = 35.000000+(random(0.000000, 1000000)/1000000.000000);
+    //             // randLon = random(-106.648240, -106.610122);
+    //             randLon = -106.000000+(random(0.000000, 1000000)/100000.000000);
+    //             Serial.printf("Lat = %0.6f , Lon = %0.6f\n", randLat, randLon);
+    //             createEventPayLoad(randLat, randLon);
+    //             // gpsFeed.publish(lat, lon); //publishing via JSON, you don't need this line
+    //             Serial.printf("Publishing %0.6f, %0.6f\n", randLat, randLon);
+
+    //         }
+    //         lastTime = millis();
+    //     }
+//Funciton: createEventPayLoad
+// void createEventPayLoad(float lat, float lon) {
+//     JsonWriterStatic<256> jw; 
+//     {
+//         JsonWriterAutoObject obj(&jw);
+
+//         jw.insertKeyValue("lat", randLat);
+//         jw.insertKeyValue("lon", randLon);
+//     }
+//     gpsFeed.publish(jw.getBuffer());
+// }
 
 //OLD CODE
  
@@ -428,9 +471,6 @@ int movingTradRainbow (int startPixel, int endPixel, int hexColor) {
         //                     for (int i = 0; i < 7; i++) {
         //                         Serial.printf("%i", soundLevel[i]);
         //                     }
-                            
-        //                     Serial.printf("sound levels");  
-        //             }
         // }
 
         //             //         if(soundLevel[pulse]>=0 && soundLevel[pulse]<63) {
@@ -546,30 +586,51 @@ int movingTradRainbow (int startPixel, int endPixel, int hexColor) {
         // }
 
            //ATTEMPT V1.0
-    // if(client.connect(server, 80))
-    // {
-    //     //Show when we Get the Connection to the Server
-    //     Serial.printf(".");
-    //     Serial.printf("Successfully Connected");
-                
-    //     // Send HTTP data
-    //     client.printf("GET https://gluebench.bubbleapps.io//version-test/api/OpenWeather-UsingLat&Long|Data/wf/sendWeatherReport");
-    //     client.printf("Host: gluebench.bubbleapps.io");
-    //     //received Data
-    //     receivedData = "";
-    //     // Read data from the buffer
-    //     while(receivedData.indexOf("\r\n\r\n") == -1)
-    //     {
-    //         memset(dataBuffer, 0x00, sizeof(dataBuffer));
-    //         client.read(dataBuffer, sizeof(dataBuffer));
-    //         receivedData += (const char*)dataBuffer;
-    //     }
-    //     // Print the string
-    //    Serial.printf("%c\n", receivedData);
-    //     // Stop the current connection
-    //     client.stop();
-    // }  
-    // else
-    // {
-    //     Serial.println("Server connection failed. Trying again...");
-    // }
+  
+        //JSON Get and Post Globals, MQTT Globals
+// float mainTemp;
+// unsigned int last, lastTime;
+// const char *EVENT_NAME = "getMainTemp";    
+// byte dataBuffer[1024];
+// String receivedData;
+// void callback(char* topic, byte* payload, unsigned int length);
+// //MQTT Object
+// MQTT client("https://gluebench.bubbleapps.io/", 1883, callback);
+
+//SETUP
+//  if(TheClient.connect(server, 443)) {
+//         //Show when we Get the Connection to the Server
+//         Serial.printf(".");
+//         Serial.printf("Successfully Connected");
+//     }
+//     String subscriptionName = String::format("%s/%s/", System.deviceID().c_str(), EVENT_NAME);
+//     Particle.subscribe(subscriptionName, subscriptionHandler, MY_DEVICES);
+//     Serial.printf("Subscribing to %s\n", subscriptionName.c_str());
+
+//LOOP
+//  if((millis()-lastTime>10000)) {
+//             // Send HTTP data
+//             TheClient.printf("GET https:/gluebench.bubbleapps.io/version-test/api/1.1/wf/getMainTemp");
+//             TheClient.printf("Host: gluebench.bubbleapps.io");
+//             //received Data
+//             receivedData = "";
+//             // Read data from the buffer
+//             if(TheClient.connect(server, 443)) { //443 for unsecured xfer, 80 is normal xfer
+//             //Show when we Get the Connection to the Server
+//                 Serial.printf(".");
+//                 Serial.printf("Successfully Connected");
+//                 while(receivedData.indexOf("\r\n\r\n") == -1) {
+//                     memset(dataBuffer, 0x00, sizeof(dataBuffer));
+//                     TheClient.read(dataBuffer, sizeof(dataBuffer));
+//                     receivedData += (const char*)dataBuffer;
+//                 }
+//             lastTime = millis();
+//             // Print the string
+//                 Serial.printf("%s\n", receivedData);
+//             // Stop the current connection
+//                 // TheClient.stop();
+//             }
+//             else {
+//                 Serial.printf("Server connection failed. Trying again...");
+//             }
+//         }
