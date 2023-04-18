@@ -32,16 +32,17 @@
 #include "kdsRainbows.h"
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_GFX.h>
-#include <MQTT.h>
 #include <JsonParserGeneratorRK.h>
 #include <HttpClient.h>
+#include "credentials.h"
+
 
 //GLOBALS
 //MSGEQ7 Sound Sensor
 void setup();
 void loop();
 int pixelFill(int startPixel, int endPixel, int brightness, int hexColor);
-#line 35 "/Users/kdneeley/Documents/IoT/capstone/prototype_solarPoweredParkBench/src/prototype_solarPoweredParkBench.ino"
+#line 36 "/Users/kdneeley/Documents/IoT/capstone/prototype_solarPoweredParkBench/src/prototype_solarPoweredParkBench.ino"
 int const STROBE = A3;
 int const OUT = A4;
 int const RESETPIN = A2;
@@ -67,10 +68,14 @@ int distance;
 int distanceThreshold = 2817;
 
 //JSON Xfer
-int const PORT=80;
+int const PORT=443; //80 is normal and secure, 443 is unsecure
+const char* host = "gluebench.bubbleapps.io";
 int nextTime;
 int lastTime;
 int mainTemp;
+int lowTemp;
+int highTemp;
+String weather;
 
 //function prototype
 int pixelFill (int startPixel, int endPixel, int brightness, int hexColor);
@@ -81,12 +86,15 @@ int movingTradRainbow (int startPixel, int endPixel, int hexColor);
 Adafruit_NeoPixel pixel(PIXELCOUNT, PIXELPIN, WS2812B);
 Adafruit_SSD1306 myDisplay(OLED_RESET); 
 //Objects for JSON Xfer
-TCPClient TheClient; // Create TCP Client object  
+// TCPClient TheClient; // Create TCP Client object                       
+// byte server[] = { 104, 19, 217, 48}; //https://gluebench.bubbleapps.io/
 HttpClient http;
 http_request_t request;
 http_response_t response;
-JsonParserStatic<512, 16> jsonParser;                       
-byte server[] = { 104, 19, 217, 48}; //https://gluebench.bubbleapps.io/
+JsonParserStatic<1024, 20> jsonParser;
+http_header_t headers[] = {
+    {"Authorization", String("Bearer " + String(getWeather)).c_str()}
+};
 
 
 
@@ -134,19 +142,66 @@ void setup() {
 
 void loop() {
     distance = analogRead(MOTIONSENSOR); //Get Distance to determine if the program will run given a presence
-    Serial.printf("first read is %i", distance);
+    Serial.printf("Distance Read is %i\n", distance);
 
     if(distance > distanceThreshold) { //if a presence is sensed run the program
+    
+    //Get the Temperature data from Bubble
+       if(WiFi.connecting() == false) {
+            request.hostname = host;
+            request.port = PORT;
+            request.path = "/api/1.1/wf/weatherreport";
+            request.headers = "Authorization: Bearer " + String(getWeather) + "\r\n";
+
+            http.get(request, response, headers, sizeof(headers) / sizeof(headers[0]));
+
+            if (response.status == 200) {
+                 Serial.println(response.body);
+
+                const char* json = response.body.c_str();
+                
+                JsonParserGeneratorRK::jsmntok_t tokens[32];
+                int tokenCount = sizeof(tokens) / sizeof(tokens[0]);
+                int result = jsonParser.parse();
+
+                if (result >= 0) {
+                    float mainTemp = jsonParser.parse();
+                    float lowTemp = jsonParser.parse();
+                    float highTemp = jsonParser.parse();
+                    const char* weatherReport = jsonParser.parse();
+                    const char* date = jsonParser.parse();
+
+                    Serial.print("Main Temp: ");
+                    Serial.println(mainTemp);
+                    Serial.print("Low Temp: ");
+                    Serial.println(lowTemp);
+                    Serial.print("High Temp: ");
+                    Serial.println(highTemp);
+                    // Serial.print("Weather Report: ");
+                    // Serial.println(weatherReport);
+                    // Serial.print("Date: ");
+                    // Serial.println(date);
+                }
+                else {
+                    Serial.println("Failed to parse JSON");
+                }
+            }
+            else {
+            Serial.print("HTTP GET request failed, error: ");
+            Serial.println(response.status);
+            }
+
+            delay(5000);
+        }
         //OLED Display properties
-        // myDisplay.clearDisplay();
-        // myDisplay.display();
-        // myDisplay.setRotation(2);
-        // myDisplay.setCursor (1,1);
-        // myDisplay.setTextSize(2);
-        // myDisplay.setTextColor(WHITE);
-        // myDisplay.printf("Distance = %i\n", distance); //Troublehsoot: Print Distance
-        // myDisplay.display();
-     
+        myDisplay.clearDisplay();
+        myDisplay.display();
+        myDisplay.setRotation(2);
+        myDisplay.setCursor (1,1);
+        myDisplay.setTextSize(2);
+        myDisplay.setTextColor(WHITE);
+        myDisplay.printf("%i\n", mainTemp);
+        myDisplay.display();
 
         //GET Sound
         // Cycle through each frequency band by pulsing the strobe.
@@ -176,7 +231,7 @@ void loop() {
         digitalWrite(STROBE, LOW);
         delayMicroseconds(72);
         soundLevel[1] = analogRead(OUT);
-        Serial.printf("Level 0\n Value %i\n", soundLevel[1]);
+        Serial.printf("Level 1\n Value %i\n", soundLevel[1]);
         digitalWrite(STROBE, HIGH);
         delayMicroseconds(72); 
         if(soundLevel[1] < 400) {
@@ -198,7 +253,7 @@ void loop() {
         digitalWrite(STROBE, LOW);
         delayMicroseconds(72);
         soundLevel[2] = analogRead(OUT);
-        Serial.printf("Level 0\n Value %i\n", soundLevel[2]);
+        Serial.printf("Level 2\n Value %i\n", soundLevel[2]);
         digitalWrite(STROBE, HIGH);
         delayMicroseconds(72); 
         if(soundLevel[2] < 400) {
@@ -220,7 +275,7 @@ void loop() {
         digitalWrite(STROBE, LOW);
         delayMicroseconds(72);
         soundLevel[3] = analogRead(OUT);
-        Serial.printf("Level 0\n Value %i\n", soundLevel[3]);
+        Serial.printf("Level 3\n Value %i\n", soundLevel[3]);
         digitalWrite(STROBE, HIGH);
         delayMicroseconds(72); 
         if(soundLevel[3] < 400) {
@@ -242,7 +297,7 @@ void loop() {
         digitalWrite(STROBE, LOW);
         delayMicroseconds(72);
         soundLevel[4] = analogRead(OUT);
-        Serial.printf("Level 0\n Value %i\n", soundLevel[4]);
+        Serial.printf("Level 4\n Value %i\n", soundLevel[4]);
         digitalWrite(STROBE, HIGH);
         delayMicroseconds(72); 
         if(soundLevel[4] < 400) {
@@ -264,7 +319,7 @@ void loop() {
         digitalWrite(STROBE, LOW);
         delayMicroseconds(72);
         soundLevel[5] = analogRead(OUT);
-        Serial.printf("Level 0\n Value %i\n", soundLevel[5]);
+        Serial.printf("Level 5\n Value %i\n", soundLevel[5]);
         digitalWrite(STROBE, HIGH);
         delayMicroseconds(72); 
         if(soundLevel[4] < 400) {
@@ -286,7 +341,7 @@ void loop() {
         digitalWrite(STROBE, LOW);
         delayMicroseconds(72);
         soundLevel[6] = analogRead(OUT);
-        Serial.printf("Level 0\n Value %i\n", soundLevel[6]);
+        Serial.printf("Level 6\n Value %i\n", soundLevel[6]);
         digitalWrite(STROBE, HIGH);
         delayMicroseconds(72); 
         if(soundLevel[6] < 400) {
@@ -304,40 +359,14 @@ void loop() {
         if(soundLevel[6] >= 3000) {
             pixelFill(16, 16, 255, orange);
         }
-
-        //Get the Temperature data from Bubble
-       
-       if(WiFi.connecting() == false) {
-          if((millis()-lastTime > 60000)) {
-            request.hostname = "gluebench.bubbleapps.io";
-            request.port = PORT;
-            request.path = "/version-test/api/1.1/wf/getMainTemp";
-            http.get(request, response);
-            if (response.status == 200) {
-                jsonParser.clear();
-                Serial.print("Application>\tResponse status: ");
-                Serial.println(response.status);
-                Serial.print("Application>\tHTTP Response Body: ");
-                Serial.println(response.body);
-                mainTemp = jsonParser.parse();
-            
-            } 
-            lastTime = millis();
-          }
-            else {
-                Serial.printf("HTTP error: ");
-                Serial.println(response.status);
-            }
-            delay(5000);
-       }
-    }
+    
     else {
         distance = analogRead(MOTIONSENSOR);
     }
 
     
 }
-
+}
 ////FUNCTION DEFINITIONS
 //NEOPIXEL FUNCTIONS
 int pixelFill(int startPixel, int endPixel, int brightness, int hexColor) {
@@ -355,79 +384,80 @@ int pixelFill(int startPixel, int endPixel, int brightness, int hexColor) {
             return(endPixel);
 }
 
-int tradRainbow (int startPixel, int endPixel, int hexColor) {
-    int maxBrightness = 255;
-    int minBrightness = 20;
-    int startColor = 0;
-    int endColor = 9;
+// int tradRainbow (int startPixel, int endPixel, int hexColor) {
+//     int maxBrightness = 255;
+//     int minBrightness = 20;
+//     int startColor = 0;
+//     int endColor = 9;
 
-    for(int b=minBrightness; b<=maxBrightness; b++) {
-        brightness = b;
-        pixel.setBrightness(b);
-        for(int c = startColor; c <= endColor; c++) {
-            hexColor = traditionalrainbow[c];
-            for(int i=startPixel; i<endPixel+1; i++) {
-                    pixel.setPixelColor(i, hexColor);
-                    pixel.show(); 
-                }
+//     for(int b=minBrightness; b<=maxBrightness; b++) {
+//         brightness = b;
+//         pixel.setBrightness(b);
+//         for(int c = startColor; c <= endColor; c++) {
+//             hexColor = traditionalrainbow[c];
+//             for(int i=startPixel; i<endPixel+1; i++) {
+//                     pixel.setPixelColor(i, hexColor);
+//                     pixel.show(); 
+//                 }
             
-            delay(100);
-        }
-    }
-    for(int b = maxBrightness; b >= minBrightness; b--) {
-        pixel.setBrightness(b);
-        for(int c = endColor; c >= startColor; c--) {
-            hexColor = traditionalrainbow[c];
-            for(int i=startPixel; i<endPixel+1; i++) {
-                    pixel.setPixelColor(i, hexColor);
-                    pixel.show(); 
-                }
-            delay(100);
-        }
-    }
-    pixel.show();
-    return(endPixel);
-}
+//             delay(100);
+//         }
+//     }
+//     for(int b = maxBrightness; b >= minBrightness; b--) {
+//         pixel.setBrightness(b);
+//         for(int c = endColor; c >= startColor; c--) {
+//             hexColor = traditionalrainbow[c];
+//             for(int i=startPixel; i<endPixel+1; i++) {
+//                     pixel.setPixelColor(i, hexColor);
+//                     pixel.show(); 
+//                 }
+//             delay(100);
+//         }
+//     }
+//     pixel.show();
+//     return(endPixel);
+// }
 
-int movingTradRainbow (int startPixel, int endPixel, int hexColor) {
-    int maxBrightness = 255;
-    int minBrightness = 20;
-    int startColor = 0;
-    int endColor = 9;
+// int movingTradRainbow (int startPixel, int endPixel, int hexColor) {
+//     int maxBrightness = 255;
+//     int minBrightness = 20;
+//     int startColor = 0;
+//     int endColor = 9;
 
-    for(int b=minBrightness; b<= maxBrightness; b++) {
-        pixel.setBrightness(b);
-        Serial.printf("Brightness = %i \n", b);
-        for(int i=startPixel; i<endPixel+1; i++) {
-            for(int c = startColor; c <= endColor; c++) {
-                hexColor = traditionalrainbow[c];
-                        pixel.setPixelColor(i, hexColor);
-                        pixel.show(); 
-                        delay(15);
-                        pixel.clear();
-                        pixel.show();
-                }
+//     for(int b=minBrightness; b<= maxBrightness; b++) {
+//         pixel.setBrightness(b);
+//         Serial.printf("Brightness = %i \n", b);
+//         for(int i=startPixel; i<endPixel+1; i++) {
+//             for(int c = startColor; c <= endColor; c++) {
+//                 hexColor = traditionalrainbow[c];
+//                         pixel.setPixelColor(i, hexColor);
+//                         pixel.show(); 
+//                         delay(15);
+//                         pixel.clear();
+//                         pixel.show();
+//                 }
           
-        }
+//         }
 
-    }
-    for(int b = maxBrightness; b >= minBrightness; b--) {
-        pixel.setBrightness(b);
-        for(int i = endPixel; i>= startPixel; i--) {
-            for(int c = endColor; c >= startColor; c--) {
-                hexColor = traditionalrainbow[c];
-                        pixel.setPixelColor(i, hexColor);
-                        pixel.show(); 
-                        delay(15);
-                        pixel.clear();
-                        pixel.show();
-            }
+//     }
+//     for(int b = maxBrightness; b >= minBrightness; b--) {
+//         pixel.setBrightness(b);
+//         for(int i = endPixel; i>= startPixel; i--) {
+//             for(int c = endColor; c >= startColor; c--) {
+//                 hexColor = traditionalrainbow[c];
+//                         pixel.setPixelColor(i, hexColor);
+//                         pixel.show(); 
+//                         delay(15);
+//                         pixel.clear();
+//                         pixel.show();
+//             }
             
-        }
-    }
-    pixel.show();
-    return (endPixel);
-}
+//         }
+//     }
+//     pixel.show();
+//     return (endPixel);
+// }
+
 //SAMPLE CODE:
 
 //in void Loop:
