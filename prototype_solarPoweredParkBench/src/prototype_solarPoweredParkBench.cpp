@@ -2,7 +2,6 @@
 //       THIS IS A GENERATED FILE - DO NOT EDIT       //
 /******************************************************/
 
-#include "Particle.h"
 #line 1 "/Users/kdneeley/Documents/IoT/capstone/prototype_solarPoweredParkBench/src/prototype_solarPoweredParkBench.ino"
 /*
  * Project prototype_solarPoweredParkBench
@@ -10,39 +9,42 @@
  *              charge their devices using a USB port. The lights on the bench will
  *              provide mild entertainment by responding to sounds in the environment.
  * 
- *              Get sound detection using the MSGEQ7 sound detector 
+ *              * Get sound detection using the MSGEQ7 sound detector 
  *              Make NeoPixels respond to the sound input
  *              Detect the presence of someone sitting on the bench 
  *              Put the program in sleep mode when no presence is detected
  *              Wake the program and run it when a presence is detected
- *              Power the microcontroller using a Solar Panel 
+ *              * Power the microcontroller using a Solar Panel 
  *              Charge a 12v battery using the Solar Panel
  *              Switch power to battery operation when the sun is gone
- *              Provide a charge to a USB port to charge common devices (Phones, Ipads, etc)
- *              Get the train and bus schedules for the installation site
- *              Display the train and bus schedules on the OLED
- *              Display the current time and date on the OLED
- *              Display the current temperature on the OLED
- *              Publish the data to a dashboard
+ *              * Provide a charge to a USB port to charge common devices (Phones, Ipads, etc)
+ *              * Get the train and bus schedules for the installation site
+ *              * Display the train and bus schedules on the OLED
+ *              * Display the current time and date on the OLED
+ *              * Display the current temperature on the OLED
+ *              * Publish the data to a dashboard
  * 
  * Author: Katie Neeley
  * Date: 04/11/2023
  */
+#include "Particle.h"
 #include <neopixel.h>
 #include "kdsRainbows.h"
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_GFX.h>
 #include <JsonParserGeneratorRK.h>
-#include <HttpClient.h>
 #include "credentials.h"
+
+
 
 
 //GLOBALS
 //MSGEQ7 Sound Sensor
 void setup();
 void loop();
+void subscriptionHandler(const char *event, const char *data);
 int pixelFill(int startPixel, int endPixel, int brightness, int hexColor);
-#line 36 "/Users/kdneeley/Documents/IoT/capstone/prototype_solarPoweredParkBench/src/prototype_solarPoweredParkBench.ino"
+#line 38 "/Users/kdneeley/Documents/IoT/capstone/prototype_solarPoweredParkBench/src/prototype_solarPoweredParkBench.ino"
 int const STROBE = A3;
 int const OUT = A4;
 int const RESETPIN = A2;
@@ -58,6 +60,7 @@ int startPixel;
 int endPixel;
 int hexColor;
 int brightness;
+int showTime;
 
 //OLED
 const int OLED_RESET = D4;
@@ -65,37 +68,96 @@ const int OLED_RESET = D4;
 //Distance Sensor
 const int MOTIONSENSOR = A1;
 int distance;
-int distanceThreshold = 2817;
+int distanceThreshold = 2900;
 
-//JSON Xfer
-int const PORT=443; //80 is normal and secure, 443 is unsecure
-const char* host = "gluebench.bubbleapps.io";
-int nextTime;
-int lastTime;
-int mainTemp;
-int lowTemp;
-int highTemp;
-String weather;
+//QR Code for Dashboard
+// 'QRcode', 128x64px
+// 'QRcode', 128x64px
+const unsigned char QRcode [] PROGMEM = {
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe0, 0x00, 0x60, 0x78, 0x18, 0x06, 0x00, 0x07, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe0, 0x00, 0x60, 0x78, 0x18, 0x06, 0x00, 0x07, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe7, 0xfe, 0x66, 0x61, 0xe0, 0x66, 0x7f, 0xe7, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe7, 0xfe, 0x66, 0x61, 0xe0, 0x66, 0x7f, 0xe7, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x7e, 0x67, 0xe7, 0xfe, 0x60, 0x67, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x7e, 0x67, 0xe7, 0xfe, 0x60, 0x67, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x67, 0x9e, 0x19, 0xfe, 0x60, 0x67, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x67, 0x9e, 0x19, 0xfe, 0x60, 0x67, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x79, 0xfe, 0x61, 0x9e, 0x60, 0x67, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x79, 0xfe, 0x61, 0x9e, 0x60, 0x67, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe7, 0xfe, 0x7f, 0x99, 0x86, 0x1e, 0x7f, 0xe7, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe7, 0xfe, 0x7f, 0x99, 0x86, 0x1e, 0x7f, 0xe7, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe0, 0x00, 0x66, 0x66, 0x66, 0x66, 0x00, 0x07, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe0, 0x00, 0x66, 0x66, 0x66, 0x66, 0x00, 0x07, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe1, 0xe7, 0x80, 0x07, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe1, 0xe7, 0x80, 0x07, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x18, 0x19, 0xf9, 0x98, 0x1e, 0x79, 0x87, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x18, 0x19, 0xf9, 0x98, 0x1e, 0x79, 0x87, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xfe, 0x61, 0x87, 0xf8, 0x1e, 0x00, 0x07, 0xe7, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xfe, 0x61, 0x87, 0xf8, 0x1e, 0x00, 0x07, 0xe7, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xfe, 0x18, 0x1e, 0x61, 0xe1, 0xff, 0xfe, 0x1f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xfe, 0x18, 0x1e, 0x61, 0xe1, 0xff, 0xfe, 0x1f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xfe, 0x07, 0xe7, 0xff, 0xe6, 0x07, 0x9f, 0xe7, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xfe, 0x07, 0xe7, 0xff, 0xe6, 0x07, 0x9f, 0xe7, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x66, 0x79, 0x86, 0x19, 0xe7, 0xf8, 0x7f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x66, 0x79, 0x86, 0x19, 0xe7, 0xf8, 0x7f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xf9, 0xe1, 0xe0, 0x66, 0x60, 0x1e, 0x7e, 0x07, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xf9, 0xe1, 0xe0, 0x66, 0x60, 0x1e, 0x7e, 0x07, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xfe, 0x66, 0x7f, 0x81, 0x87, 0x98, 0x1e, 0x07, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xfe, 0x66, 0x7f, 0x81, 0x87, 0x98, 0x1e, 0x07, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xf9, 0xe7, 0x81, 0x86, 0x66, 0x1f, 0x87, 0x9f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xf9, 0xe7, 0x81, 0x86, 0x66, 0x1f, 0x87, 0x9f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xf8, 0x1e, 0x61, 0x86, 0x1e, 0x61, 0xe1, 0x9f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xf8, 0x1e, 0x61, 0x86, 0x1e, 0x61, 0xe1, 0x9f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xf9, 0xf9, 0x99, 0xfe, 0x66, 0x67, 0x98, 0x1f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xf9, 0xf9, 0x99, 0xfe, 0x66, 0x67, 0x98, 0x1f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x00, 0x00, 0x06, 0x7e, 0x66, 0x7f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x00, 0x00, 0x06, 0x7e, 0x66, 0x7f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xfe, 0x67, 0xff, 0x80, 0x01, 0x9e, 0x66, 0x7f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xfe, 0x67, 0xff, 0x80, 0x01, 0x9e, 0x66, 0x7f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xf8, 0x60, 0x60, 0x18, 0x00, 0x60, 0x00, 0x7f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xf8, 0x60, 0x60, 0x18, 0x00, 0x60, 0x00, 0x7f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe0, 0x67, 0xff, 0xe7, 0xe0, 0x07, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe0, 0x67, 0xff, 0xe7, 0xe0, 0x07, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe0, 0x00, 0x67, 0xe6, 0x67, 0x86, 0x61, 0x9f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe0, 0x00, 0x67, 0xe6, 0x67, 0x86, 0x61, 0x9f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe7, 0xfe, 0x66, 0x18, 0x1e, 0x07, 0xe1, 0xe7, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe7, 0xfe, 0x66, 0x18, 0x1e, 0x07, 0xe1, 0xe7, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x78, 0x7f, 0xf8, 0x60, 0x06, 0x1f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x78, 0x7f, 0xf8, 0x60, 0x06, 0x1f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x61, 0xe7, 0x87, 0xe1, 0x81, 0xe7, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x61, 0xe7, 0x87, 0xe1, 0x81, 0xe7, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x61, 0x99, 0xf8, 0x07, 0x9e, 0x67, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe6, 0x06, 0x61, 0x99, 0xf8, 0x07, 0x9e, 0x67, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe7, 0xfe, 0x79, 0x80, 0x1e, 0x61, 0x99, 0x9f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe7, 0xfe, 0x79, 0x80, 0x1e, 0x61, 0x99, 0x9f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe0, 0x00, 0x66, 0x7f, 0x9e, 0x00, 0x7f, 0x9f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xe0, 0x00, 0x66, 0x7f, 0x9e, 0x00, 0x7f, 0x9f, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
+};
+
+
+//WEBHOOK GLOBALS
+const char *EVENT_NAME = "GetWeatherData";
+unsigned int lastTime;
+const float lat=35.0045, lon=-106.6465;
 
 //function prototype
 int pixelFill (int startPixel, int endPixel, int brightness, int hexColor);
-int tradRainbow (int startPixel, int endPixel, int hexColor);
-int movingTradRainbow (int startPixel, int endPixel, int hexColor);
+// int tradRainbow (int startPixel, int endPixel, int hexColor);
+// int movingTradRainbow (int startPixel, int endPixel, int hexColor);
 
 //Objects
 Adafruit_NeoPixel pixel(PIXELCOUNT, PIXELPIN, WS2812B);
-Adafruit_SSD1306 myDisplay(OLED_RESET); 
-//Objects for JSON Xfer
-// TCPClient TheClient; // Create TCP Client object                       
-// byte server[] = { 104, 19, 217, 48}; //https://gluebench.bubbleapps.io/
-HttpClient http;
-http_request_t request;
-http_response_t response;
-JsonParserStatic<1024, 20> jsonParser;
-http_header_t headers[] = {
-    {"Authorization", String("Bearer " + String(getWeather)).c_str()}
-};
+Adafruit_SSD1306 myDisplay(OLED_RESET);
 
+
+void rainBow(uint8_t holdOn);
+uint32_t Wheel(byte WheelPos);
 
 
 SYSTEM_MODE(AUTOMATIC);
@@ -103,7 +165,11 @@ SYSTEM_MODE(AUTOMATIC);
 void setup() {
     Serial.begin(9600);
     waitFor(Serial.isConnected, 15000);
+    String subscriptionName = String::format("%s/%s/", System.deviceID().c_str(), EVENT_NAME);
+    Particle.subscribe(subscriptionName, subscriptionHandler, MY_DEVICES);
+    Serial.printf("Subscribing to %s\n", subscriptionName.c_str());
     pixel.begin();
+ 
 
     //Connect to Internet but not Particle Cloud
     WiFi.on();
@@ -145,63 +211,46 @@ void loop() {
     Serial.printf("Distance Read is %i\n", distance);
 
     if(distance > distanceThreshold) { //if a presence is sensed run the program
-    
-    //Get the Temperature data from Bubble
-       if(WiFi.connecting() == false) {
-            request.hostname = host;
-            request.port = PORT;
-            request.path = "/api/1.1/wf/weatherreport";
-            request.headers = "Authorization: Bearer " + String(getWeather) + "\r\n";
-
-            http.get(request, response, headers, sizeof(headers) / sizeof(headers[0]));
-
-            if (response.status == 200) {
-                 Serial.println(response.body);
-
-                const char* json = response.body.c_str();
-                
-                JsonParserGeneratorRK::jsmntok_t tokens[32];
-                int tokenCount = sizeof(tokens) / sizeof(tokens[0]);
-                int result = jsonParser.parse();
-
-                if (result >= 0) {
-                    float mainTemp = jsonParser.parse();
-                    float lowTemp = jsonParser.parse();
-                    float highTemp = jsonParser.parse();
-                    const char* weatherReport = jsonParser.parse();
-                    const char* date = jsonParser.parse();
-
-                    Serial.print("Main Temp: ");
-                    Serial.println(mainTemp);
-                    Serial.print("Low Temp: ");
-                    Serial.println(lowTemp);
-                    Serial.print("High Temp: ");
-                    Serial.println(highTemp);
-                    // Serial.print("Weather Report: ");
-                    // Serial.println(weatherReport);
-                    // Serial.print("Date: ");
-                    // Serial.println(date);
-                }
-                else {
-                    Serial.println("Failed to parse JSON");
-                }
-            }
-            else {
-            Serial.print("HTTP GET request failed, error: ");
-            Serial.println(response.status);
-            }
-
-            delay(5000);
-        }
-        //OLED Display properties
+        // if((millis()-lastTime) > 60000) {
+        //     Serial.printf("\n\nTime = %i\n", millis());
+        //     Particle.publish(EVENT_NAME, "", PRIVATE);
+        //     Particle.publish(EVENT_NAME, String::format("{\"lat\":%0.5f,\"lon\":%0.5f}", lat, lon), PRIVATE);
+        //     lastTime = millis();
+        // }
+        //Starting Light       
+        pixelFill(0, 16, 255, fullyellow);
+        pixel.show();
+        // delay(15000);
+           
+        //Sample Data
         myDisplay.clearDisplay();
         myDisplay.display();
         myDisplay.setRotation(2);
         myDisplay.setCursor (1,1);
         myDisplay.setTextSize(2);
         myDisplay.setTextColor(WHITE);
-        myDisplay.printf("%i\n", mainTemp);
+        myDisplay.printf("04/19/2023\n05:02P 68F\nLOW: 52F  HIGH: 72F\n");
         myDisplay.display();
+        delay(3000);
+
+        //Sample Data
+        myDisplay.clearDisplay();
+        myDisplay.display();
+        myDisplay.setRotation(2);
+        myDisplay.setCursor (1,1);
+        myDisplay.setTextSize(1);
+        myDisplay.setTextColor(WHITE);
+        myDisplay.printf("ETA\n05:45P : Redline\n06:45 : #66\n06:00P Rail Runner\n");
+        myDisplay.display();
+        delay(3000);
+
+        //Sample Data
+        myDisplay.clearDisplay();
+        myDisplay.display();
+        myDisplay.setRotation(2);
+        myDisplay.drawBitmap(0, 0, QRcode, 128, 64, WHITE);;
+        myDisplay.display();
+        delay(3000);
 
         //GET Sound
         // Cycle through each frequency band by pulsing the strobe.
@@ -227,6 +276,7 @@ void loop() {
         if(soundLevel[0] >= 3000) {
             pixelFill(0, 2, 255, fullred);
         }
+
         //Sound Level 1
         digitalWrite(STROBE, LOW);
         delayMicroseconds(72);
@@ -358,28 +408,78 @@ void loop() {
         }
         if(soundLevel[6] >= 3000) {
             pixelFill(16, 16, 255, orange);
-        }
-    
-    else {
-        distance = analogRead(MOTIONSENSOR);
+        } 
+        rainBow(20);
+       
     }
-
-    
-}
-}
-////FUNCTION DEFINITIONS
-//NEOPIXEL FUNCTIONS
-int pixelFill(int startPixel, int endPixel, int brightness, int hexColor) {
+    if(distance < distanceThreshold) {
+            distance = analogRead(MOTIONSENSOR);
+            myDisplay.clearDisplay();
+            myDisplay.display();
             pixel.clear();
             pixel.show();
+    } 
+
+    
+   
+}
+////FUNCTION DEFINITIONS
+
+
+void rainBow(uint8_t holdOn) {
+  uint16_t i, j;
+
+  for(j=0; j<256; j++) {
+    for(i=0; i<pixel.numPixels(); i++) {
+      pixel.setPixelColor(i, Wheel((i+j) & 255));
+    }
+    pixel.show();
+    delay(holdOn);
+  }
+}
+uint32_t Wheel(byte WheelPos) {
+  if(WheelPos < 85) {
+   return pixel.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
+  } else if(WheelPos < 170) {
+   WheelPos -= 85;
+   return pixel.Color(255 - WheelPos * 3, 0, WheelPos * 3);
+  } else {
+   WheelPos -= 170;
+   return pixel.Color(0, WheelPos * 3, 255 - WheelPos * 3);
+  }
+}
+
+//WEBHOOK 
+void subscriptionHandler(const char *event, const char *data) {
+
+    JSONValue outerObj = JSONValue::parseCopy(data);
+    JSONObjectIterator iter(outerObj);
+    while(iter.next()){
+        Serial.printf("key=%s value=%s\n", (const char*) iter.name(), (const char*)
+        iter.value().toString());
+        myDisplay.clearDisplay();
+        myDisplay.display();
+        myDisplay.setRotation(2);
+        myDisplay.setCursor (1,1);
+        myDisplay.setTextSize(2);
+        myDisplay.setTextColor(WHITE);
+        myDisplay.printf("%s %s\n", (const char*) iter.name(), (const char*) iter.value().toString());
+        myDisplay.display();
+    }
+}
+
+//NEOPIXEL FUNCTIONS
+int pixelFill(int startPixel, int endPixel, int brightness, int hexColor) {
+            // pixel.clear();
+            // pixel.show();
             pixel.setBrightness(brightness);
             for(int i = startPixel; i < endPixel; i++) {
                 pixel.setPixelColor(i, hexColor);
             }
             pixel.show();
             delay(100);
-            pixel.clear();
-            pixel.show();
+            // pixel.clear();
+            // pixel.show();
 
             return(endPixel);
 }
@@ -624,6 +724,75 @@ int pixelFill(int startPixel, int endPixel, int brightness, int hexColor) {
         // if(distance<3000) { //If no presence is sensed, just get the distance reading until a presence is sensed
         //     distance = analogRead(MOTIONSENSOR);
         // }
+
+
+//ATTEMPT V2.0
+// #include <HttpClient.h>
+// #include "credentials.h"
+// //JSON Xfer
+// int const PORT=443; //80 is normal and secure, 443 is unsecure
+// const char* HOST = "https://gluebench.bubbleapps.io";
+// int nextTime;
+// int lastTime;
+// int mainTemp;
+// // int lowTemp;
+// // int highTemp;
+// // String weather;
+
+// //Objects for JSON Xfer
+// // TCPClient TheClient; // Create TCP Client object                       
+// // byte server[] = { 104, 19, 217, 48}; //https://gluebench.bubbleapps.io/
+// HttpClient http;
+// http_request_t request;
+// http_response_t response;
+// JsonParserStatic<1024, 20> jsonParser;
+// // http_header_t headers[] = {
+// //     {"Authorization", String("Bearer " + String(getWeather)).c_str()}
+// // };
+
+ // //Get the Temperature data from Bubble
+    //    if(WiFi.connecting() == false) {
+    //         request.hostname = HOST;
+    //         request.port = PORT;
+    //         request.path = "/api/1.1/wf/weatherreport";
+    //         // request.headers = "Authorization: Bearer " + String(getWeather) + "\r\n";
+    //         http.get(request, response);
+    //         // http.get(request, response, headers, sizeof(headers) / sizeof(headers[0]));
+
+    //         if (response.status == 200) {
+    //              Serial.println(response.body);
+
+    //             const char* json = response.body.c_str();
+                
+    //             // JsonParserGeneratorRK::jsmntok_t tokens[32];
+    //             // int tokenCount = sizeof(tokens) / sizeof(tokens[0]);
+    //             int result = jsonParser.parse();
+
+    //             if (result >= 0) {
+    //                 float mainTemp = jsonParser.parse();
+    //                 // float lowTemp = jsonParser.parse();
+    //                 // float highTemp = jsonParser.parse();
+    //                 // const char* weatherReport = jsonParser.parse();
+    //                 // const char* date = jsonParser.parse();
+
+    //                 Serial.printf("Main Temp: %i\n", mainTemp);
+    //                 // Serial.printf("Low Temp: %i\n", lowTemp);
+    //                 // Serial.printf("High Temp: %i \n", highTemp);
+    //                 // Serial.printf("Weather Report: %s\n", weatherReport);
+    //                 // Serial.printf("Date: %s\n", date);
+    //             }
+    //             else {
+    //                 Serial.println("Failed to parse JSON");
+    //             }
+    //         }
+    //         else {
+    //         Serial.print("HTTP GET request failed, error: ");
+    //         Serial.println(response.status);
+    //         }
+
+    //         delay(5000);
+    //     }
+
 
            //ATTEMPT V1.0
   
