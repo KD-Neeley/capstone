@@ -22,7 +22,6 @@
  * Author: Katie Neeley
  * Date: 04/11/2023
  */
-#include "Particle.h"
 #include <neopixel.h>
 #include "kdsRainbows.h"
 #include <Adafruit_SSD1306.h>
